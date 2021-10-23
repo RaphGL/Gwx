@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+import argparse, time, requests
+from bs4 import BeautifulSoup
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Get weather information on your terminal"
+    )
+    parser.add_argument("-i", "--input", type=str, action="append") # choose locations
+    parser.add_argument("-f", "--format", type=str, default="loc:minw:maxw:wdesc") # choose weather formatting
+    parser.add_argument("-d", "--daemon", action="store_true") # check weather periodically
+    parser.add_argument("-c", "--concat", action="store_true") # print weather infos together
+    args = parser.parse_args()
+    def print_info():
+        weather_output = ""
+        for i in args.input:
+            formatted_weather = format_weather(get_weather_info(i), args.format)
+            if args.concat:
+                weather_output += formatted_weather
+            else:
+                print(formatted_weather)
+            weather_output += "|| "
+        if args.concat:
+            weather_output = weather_output[:-3]
+            print(weather_output)
+    if args.daemon:
+        run_daemon(print_info)
+    else:
+        print_info()
+
+def run_daemon(func):
+    try:
+        while True:
+            func()
+            time.sleep(60 * 30)
+    except KeyboardInterrupt:
+        print("Daemon stopped.")
+
+def format_weather(weather_info: dict, weather_format: str) -> str:
+    weather_format = weather_format.split(":")
+    wstring = ""
+    for w in weather_format:
+        if w == "minw" and weather_info['today']['min_weather']:
+            wstring += weather_info['today']['min_weather']
+        elif w == "maxw" and weather_info['today']['max_weather']:
+            wstring += weather_info['today']['max_weather']
+        elif w == "wdesc" and weather_info['today']['weather_description']:
+            wstring += weather_info['today']['weather_description']
+        elif w == "loc" and weather_info['location']:
+            wstring += weather_info['location']
+        else:
+            continue
+        wstring += " - "
+    wstring = wstring[:-2]
+    return wstring
+
+def get_weather_info(location_id: int) -> dict:
+    location = f"https://www.bbc.com/weather/{location_id}"
+    r = requests.get(location)
+
+    weather_info = {
+        'today': {
+            'min_weather': None, # minw
+            'max_weather': None, # maxw
+            'weather_description': None # wdesc
+        },
+        'location': None, #loc
+    }
+
+    if r.ok:
+        soup = BeautifulSoup(r.text, 'lxml')
+        # get today's weather
+        temps = soup.select('a#daylink-0 div.wr-day__temperature span span.wr-value--temperature--c')
+        try: 
+            weather_info['today']['max_weather'] = temps[0].text
+            weather_info['today']['min_weather'] = temps[1].text
+        except IndexError:
+            pass
+
+        # get today's weather description
+        temps = soup.select('a#daylink-0 div.wr-day__weather-type-description-container div.wr-day__weather-type-description')
+        weather_info['today']['weather_description'] = temps[0].text
+
+        # get weather location name
+        location = soup.select('h1#wr-location-name-id')[0]
+        location.span.extract()
+        weather_info['location'] = location.text
+
+    # returns a dictionary with all the weather info gathered
+    return weather_info
+
+if __name__ == '__main__':
+    main()
